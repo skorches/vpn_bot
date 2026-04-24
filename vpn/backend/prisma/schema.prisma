@@ -1,0 +1,203 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  PAUSED
+  CANCELLED
+}
+
+enum ProfileType {
+  STANDARD
+  ANTI
+}
+
+enum ProfileState {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
+enum ProvisionAction {
+  CREATE
+  DISABLE
+  DELETE
+  REFRESH
+}
+
+enum ProvisionStatus {
+  SUCCESS
+  FAILED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum RewardType {
+  DAYS
+  BALANCE
+}
+
+enum RewardEvent {
+  FIRST_PAID_ORDER
+}
+
+model User {
+  id                String             @id @default(cuid())
+  telegramChatId    BigInt             @unique @map("telegram_chat_id")
+  referralCode      String?            @unique @map("referral_code")
+  telegramUsername  String?            @map("telegram_username")
+  telegramFirstName String?            @map("telegram_first_name")
+  telegramLastName  String?            @map("telegram_last_name")
+  status            UserStatus         @default(ACTIVE)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  subscriptions     Subscription[]
+  vpnProfiles       VpnProfile[]
+  provisionEvents   ProvisionEvent[]
+  referralsSent     Referral[]         @relation("ReferrerRelation")
+  referralsReceived Referral[]         @relation("InvitedRelation")
+  referralRewards   ReferralReward[]   @relation("RewardReferrerRelation")
+  invitedRewards    ReferralReward[]   @relation("RewardInvitedRelation")
+  orders            Order[]
+
+  @@map("users")
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  title         String
+  durationDays  Int            @map("duration_days")
+  trafficBytes  BigInt         @map("traffic_bytes")
+  deviceLimit   Int            @map("device_limit")
+  isActive      Boolean        @default(true) @map("is_active")
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                String             @id @default(cuid())
+  userId            String             @map("user_id")
+  planId            String?            @map("plan_id")
+  status            SubscriptionStatus @default(ACTIVE)
+  startsAt          DateTime           @map("starts_at")
+  expiresAt         DateTime           @map("expires_at")
+  trafficLimitBytes BigInt?            @map("traffic_limit_bytes")
+  deviceLimit       Int?               @map("device_limit")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan              Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
+  vpnProfiles       VpnProfile[]
+  provisionEvents   ProvisionEvent[]
+
+  @@index([userId], map: "idx_subscriptions_user_id")
+  @@index([status], map: "idx_subscriptions_status")
+  @@map("subscriptions")
+}
+
+model VpnProfile {
+  id             String         @id @default(cuid())
+  profileCode    String         @unique @map("profile_code")
+  userId         String         @map("user_id")
+  subscriptionId String?        @map("subscription_id")
+  inboundId      Int            @map("inbound_id")
+  xuiClientId    String         @map("xui_client_id")
+  xuiSubId       String?        @map("xui_sub_id")
+  vlessUrl       String?        @map("vless_url")
+  profileType    ProfileType    @default(STANDARD) @map("profile_type")
+  state          ProfileState   @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  provisionEvents ProvisionEvent[]
+
+  @@index([userId], map: "idx_vpn_profiles_user_id")
+  @@index([subscriptionId], map: "idx_vpn_profiles_subscription_id")
+  @@index([inboundId, xuiClientId], map: "idx_vpn_profiles_xui_ref")
+  @@map("vpn_profiles")
+}
+
+model ProvisionEvent {
+  id             String          @id @default(cuid())
+  userId         String          @map("user_id")
+  subscriptionId String?         @map("subscription_id")
+  vpnProfileId   String?         @map("vpn_profile_id")
+  action         ProvisionAction
+  status         ProvisionStatus
+  errorMessage   String?         @map("error_message")
+  metadata       Json?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  vpnProfile     VpnProfile?     @relation(fields: [vpnProfileId], references: [id], onDelete: SetNull)
+
+  @@index([userId], map: "idx_provision_events_user_id")
+  @@index([createdAt], map: "idx_provision_events_created_at")
+  @@map("provision_events")
+}
+
+model Referral {
+  id             String   @id @default(cuid())
+  referrerUserId String   @map("referrer_user_id")
+  invitedUserId  String   @unique @map("invited_user_id")
+  source         String
+  createdAt      DateTime @default(now()) @map("created_at")
+  referrerUser   User     @relation("ReferrerRelation", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  invitedUser    User     @relation("InvitedRelation", fields: [invitedUserId], references: [id], onDelete: Cascade)
+
+  @@index([referrerUserId], map: "idx_referrals_referrer_user_id")
+  @@map("referrals")
+}
+
+model Order {
+  id                String      @id @default(cuid())
+  userId            String      @map("user_id")
+  providerPaymentId String      @unique @map("provider_payment_id")
+  status            OrderStatus @default(PENDING)
+  amount            Int
+  currency          String      @default("RUB")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralRewards   ReferralReward[]
+
+  @@index([userId, status], map: "idx_orders_user_status")
+  @@map("orders")
+}
+
+model ReferralReward {
+  id             String      @id @default(cuid())
+  referrerUserId String      @map("referrer_user_id")
+  invitedUserId  String      @map("invited_user_id")
+  orderId        String?     @map("order_id")
+  event          RewardEvent
+  rewardType     RewardType  @map("reward_type")
+  rewardValue    Int         @map("reward_value")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  referrerUser   User        @relation("RewardReferrerRelation", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  invitedUser    User        @relation("RewardInvitedRelation", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  order          Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([invitedUserId, event], map: "uq_referral_rewards_invited_event")
+  @@index([referrerUserId], map: "idx_referral_rewards_referrer_user_id")
+  @@map("referral_rewards")
+}

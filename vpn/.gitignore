@@ -1,0 +1,13 @@
+node_modules/
+**/node_modules/
+
+# Build artifacts
+backend/dist/
+
+# Local env files
+.env
+**/.env
+!.env.example
+
+# macOS
+.DS_Store
